@@ -84,6 +84,9 @@ mod tracer;
 #[cfg(feature = "agent-policy")]
 mod policy;
 
+mod tee_server;
+use tee_server::*;
+
 cfg_if! {
     if #[cfg(target_arch = "s390x")] {
         mod ap;
@@ -342,6 +345,14 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
+
+    // WeTEE
+    rt.block_on(async {
+        let req = CrossRequest {
+            data: vec![],
+        };
+        unsafe { TEEServerImpl::start(&req).await }.pass;
+    });
 
     let init_mode = unistd::getpid() == Pid::from_raw(1);
     let result = rt.block_on(real_main(init_mode));
