@@ -1,3 +1,7 @@
+use std::{collections::HashMap, sync::OnceLock};
+pub static INIT_DATA: OnceLock<HashMap<String, String>> = OnceLock::new();
+// pub static ENVS: OnceLock<HashMap<String, String>> = OnceLock::new();
+
 pub mod binding {
     #![allow(warnings)]
     rust2go::r2g_include_binding!();
@@ -5,12 +9,14 @@ pub mod binding {
 
 #[derive(rust2go::R2G, Clone)]
 pub struct CrossRequest {
+    pub env: Vec<u8>,
     pub data: Vec<u8>,
 }
 
-#[derive(rust2go::R2G, Clone, Copy)]
+#[derive(rust2go::R2G, Clone)]
 pub struct CrossResponse {
-    pub pass: bool,
+    pub code: u8,
+    pub data: Vec<u8>,
 }
 
 // Server api

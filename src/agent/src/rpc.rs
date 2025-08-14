@@ -105,6 +105,18 @@ use std::path::PathBuf;
 
 use kata_types::k8s;
 
+// WeTEE
+use crate::tee_server::*;
+use std::collections::HashMap;
+use std::sync::OnceLock;
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default)]
+pub struct ContainerEnv {
+    pub envs: HashMap<String, String>,
+    pub files: HashMap<String, String>,
+}
+pub static ENVS: OnceLock<HashMap<u64, ContainerEnv>> = OnceLock::new();
+// WeTEE
+
 pub const CONTAINER_BASE: &str = "/run/kata-containers";
 const MODPROBE_PATH: &str = "/sbin/modprobe";
 const TRUSTED_IMAGE_STORAGE_DEVICE: &str = "/dev/trusted_store";
@@ -746,9 +758,34 @@ impl agent_ttrpc::AgentService for AgentService {
         ctx: &TtrpcContext,
         req: protocols::agent::CreateContainerRequest,
     ) -> ttrpc::Result<Empty> {
-        trace_rpc_call!(ctx, "create_container", req);
-        is_allowed(&req).await?;
-        self.do_create_container(req).await.map_ttrpc_err(same)?;
+        let mut real_req = req.clone();
+        let mut oci = real_req.OCI().clone();
+        let mut process = oci.Process().clone();
+        let name = oci
+            .Annotations()
+            .get(kata_types::annotations::cri_containerd::CONTAINER_NAME_LABEL_KEY);
+        if let Some(name) = name {
+            let index: u64 = name.trim_start_matches('c').parse().unwrap();
+            let envs = ENVS.get().ok_or(ttrpc::Error::Others(
+                "TEE server container env not set".to_string(),
+            ))?;
+
+            let container_envs = envs.get(&index);
+            if let Some(container_envs) = container_envs {
+                for (key, value) in &container_envs.envs {
+                    process.Env.push(key.clone() + "=" + &value);
+                }
+            }
+        }
+        oci.set_Process(process);
+        real_req.set_OCI(oci.clone());
+
+        trace_rpc_call!(ctx, "create_container", real_req);
+        is_allowed(&real_req).await?;
+        self.do_create_container(real_req)
+            .await
+            .map_ttrpc_err(same)?;
+
         Ok(Empty::new())
     }
 
@@ -779,9 +816,33 @@ impl agent_ttrpc::AgentService for AgentService {
         ctx: &TtrpcContext,
         req: protocols::agent::ExecProcessRequest,
     ) -> ttrpc::Result<Empty> {
-        trace_rpc_call!(ctx, "exec_process", req);
-        is_allowed(&req).await?;
-        self.do_exec_process(req).await.map_ttrpc_err(same)?;
+        let mut real_req = req.clone();
+        let mut process = real_req.process().clone();
+
+        let index = {
+            let mut sandbox = self.sandbox.lock().await;
+            let ctr = sandbox
+                .get_container(&req.container_id)
+                .map_ttrpc_err(ttrpc::Code::INVALID_ARGUMENT, "invalid container id")?;
+            let name = ctr.config.container_name.clone();
+            name.trim_start_matches('c').parse().unwrap()
+        };
+        
+        let envs = ENVS.get().ok_or(ttrpc::Error::Others(
+            "TEE server container env not set".to_string(),
+        ))?;
+        let container_envs = envs.get(&index);
+        if let Some(container_envs) = container_envs {
+            for (key, value) in &container_envs.envs {
+                process.Env.push(key.clone() + "=" + &value);
+            }
+        }
+
+        real_req.set_process(process);
+
+        trace_rpc_call!(ctx, "exec_process", real_req);
+        is_allowed(&real_req).await?;
+        self.do_exec_process(real_req).await.map_ttrpc_err(same)?;
         Ok(Empty::new())
     }
 
@@ -1322,6 +1383,37 @@ impl agent_ttrpc::AgentService for AgentService {
                 s.network.set_dns(dns);
             }
         }
+
+        // START WeTEE
+        let init_data = INIT_DATA.get();
+        if let Some(init_data) = init_data {
+            let env = serde_json::to_vec(&init_data).unwrap();
+            let creq = CrossRequest { data: vec![], env };
+            let cresp = unsafe { TEEServerImpl::start(&creq).await };
+            if cresp.code != 0 {
+                return Err(ttrpc::Error::Others(
+                    "TEE server init error: ".to_string()
+                        + String::from_utf8(cresp.data).unwrap().as_str(),
+                ));
+            }
+
+            let env_str = String::from_utf8(cresp.data);
+            if env_str.is_err() {
+                return Err(ttrpc::Error::Others(
+                    "TEE server envs bytes to string error".to_string(),
+                ));
+            }
+
+            let genvs: Result<HashMap<u64, ContainerEnv>, serde_json::Error> =
+                serde_json::from_str(env_str.unwrap().as_str());
+            if genvs.is_err() {
+                return Err(ttrpc::Error::Others(
+                    "TEE server envs decode error".to_string(),
+                ));
+            }
+            ENVS.get_or_init(|| genvs.unwrap());
+        }
+        // END WeTEE
 
         Ok(Empty::new())
     }

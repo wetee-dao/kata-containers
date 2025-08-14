@@ -157,6 +157,8 @@ pub async fn initialize_initdata(logger: &Logger) -> Result<Option<InitdataRetur
         _policy: initdata.get_coco_data(POLICY_KEY).cloned(),
     };
 
+    crate::tee_server::INIT_DATA.get_or_init(|| initdata.data().clone());
+
     Ok(Some(res))
 }
 

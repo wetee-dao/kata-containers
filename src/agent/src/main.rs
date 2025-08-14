@@ -85,7 +85,6 @@ mod tracer;
 mod policy;
 
 mod tee_server;
-use tee_server::*;
 
 cfg_if! {
     if #[cfg(target_arch = "s390x")] {
@@ -346,14 +345,6 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .enable_all()
         .build()?;
 
-    // WeTEE
-    rt.block_on(async {
-        let req = CrossRequest {
-            data: vec![],
-        };
-        unsafe { TEEServerImpl::start(&req).await }.pass;
-    });
-
     let init_mode = unistd::getpid() == Pid::from_raw(1);
     let result = rt.block_on(real_main(init_mode));
 
@@ -430,6 +421,11 @@ async fn start_sandbox(
     // if policy is given via initdata, use it
     #[cfg(feature = "agent-policy")]
     if let Some(initdata_return_value) = initdata_return_value {
+        // let env = serde_json::to_vec(&initdata_return_value._data).unwrap();
+        // let req = CrossRequest { data: vec![],env };
+        // unsafe { TEEServerImpl::start(&req).await }.code;
+
+
         if let Some(policy) = &initdata_return_value._policy {
             info!(logger, "using policy from initdata");
             AGENT_POLICY
