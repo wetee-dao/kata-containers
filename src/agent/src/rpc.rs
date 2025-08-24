@@ -758,33 +758,34 @@ impl agent_ttrpc::AgentService for AgentService {
         ctx: &TtrpcContext,
         req: protocols::agent::CreateContainerRequest,
     ) -> ttrpc::Result<Empty> {
-        let mut real_req = req.clone();
-        let mut oci = real_req.OCI().clone();
-        let mut process = oci.Process().clone();
-        let name = oci
-            .Annotations()
-            .get(kata_types::annotations::cri_containerd::CONTAINER_NAME_LABEL_KEY);
-        if let Some(name) = name {
-            let index: u64 = name.trim_start_matches('c').parse().unwrap();
-            let envs = ENVS.get().ok_or(ttrpc::Error::Others(
-                "TEE server container env not set".to_string(),
-            ))?;
+        // let mut real_req = req.clone();
+        // let mut oci = real_req.OCI().clone();
+        // let mut process = oci.Process().clone();
 
-            let container_envs = envs.get(&index);
-            if let Some(container_envs) = container_envs {
-                for (key, value) in &container_envs.envs {
-                    process.Env.push(key.clone() + "=" + &value);
-                }
-            }
-        }
-        oci.set_Process(process);
-        real_req.set_OCI(oci.clone());
+        // // WeTEE Confidential Injection
+        // let name = oci
+        //     .Annotations()
+        //     .get(kata_types::annotations::cri_containerd::CONTAINER_NAME_LABEL_KEY);
+        // if let Some(name) = name {
+        //     let index: u64 = name.trim_start_matches('c').parse().unwrap();
+        //     let envs = ENVS.get().ok_or(ttrpc::Error::Others(
+        //         "TEE server container env not set".to_string(),
+        //     ))?;
 
-        trace_rpc_call!(ctx, "create_container", real_req);
-        is_allowed(&real_req).await?;
-        self.do_create_container(real_req)
-            .await
-            .map_ttrpc_err(same)?;
+        //     let container_envs = envs.get(&index);
+        //     if let Some(container_envs) = container_envs {
+        //         for (key, value) in &container_envs.envs {
+        //             process.Env.push(key.clone() + "=" + &value);
+        //         }
+        //     }
+        // }
+        // oci.set_Process(process);
+        // real_req.set_OCI(oci.clone());
+        // // WeTEE
+
+        trace_rpc_call!(ctx, "create_container", req);
+        is_allowed(&req).await?;
+        self.do_create_container(req).await.map_ttrpc_err(same)?;
 
         Ok(Empty::new())
     }
@@ -819,6 +820,7 @@ impl agent_ttrpc::AgentService for AgentService {
         let mut real_req = req.clone();
         let mut process = real_req.process().clone();
 
+        // WeTEE Confidential Injection
         let index = {
             let mut sandbox = self.sandbox.lock().await;
             let ctr = sandbox
@@ -827,7 +829,7 @@ impl agent_ttrpc::AgentService for AgentService {
             let name = ctr.config.container_name.clone();
             name.trim_start_matches('c').parse().unwrap()
         };
-        
+
         let envs = ENVS.get().ok_or(ttrpc::Error::Others(
             "TEE server container env not set".to_string(),
         ))?;
@@ -837,8 +839,8 @@ impl agent_ttrpc::AgentService for AgentService {
                 process.Env.push(key.clone() + "=" + &value);
             }
         }
-
         real_req.set_process(process);
+        // WeTEE
 
         trace_rpc_call!(ctx, "exec_process", real_req);
         is_allowed(&real_req).await?;
@@ -1384,7 +1386,7 @@ impl agent_ttrpc::AgentService for AgentService {
             }
         }
 
-        // START WeTEE
+        // WeTEE  get confidential data
         let init_data = INIT_DATA.get();
         if let Some(init_data) = init_data {
             let env = serde_json::to_vec(&init_data).unwrap();
