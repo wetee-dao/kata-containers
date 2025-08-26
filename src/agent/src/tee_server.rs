@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::OnceLock};
 pub static INIT_DATA: OnceLock<HashMap<String, String>> = OnceLock::new();
-// pub static ENVS: OnceLock<HashMap<String, String>> = OnceLock::new();
+pub static IMAGES: OnceLock<Vec<String>> = OnceLock::new();
 
 pub mod binding {
     #![allow(warnings)]
@@ -16,6 +16,7 @@ pub struct CrossRequest {
 #[derive(rust2go::R2G, Clone)]
 pub struct CrossResponse {
     pub code: u8,
+    pub images: Vec<String>,
     pub data: Vec<u8>,
 }
 

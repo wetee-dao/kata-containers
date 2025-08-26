@@ -758,30 +758,25 @@ impl agent_ttrpc::AgentService for AgentService {
         ctx: &TtrpcContext,
         req: protocols::agent::CreateContainerRequest,
     ) -> ttrpc::Result<Empty> {
-        // let mut real_req = req.clone();
-        // let mut oci = real_req.OCI().clone();
-        // let mut process = oci.Process().clone();
-
-        // // WeTEE Confidential Injection
-        // let name = oci
-        //     .Annotations()
-        //     .get(kata_types::annotations::cri_containerd::CONTAINER_NAME_LABEL_KEY);
-        // if let Some(name) = name {
-        //     let index: u64 = name.trim_start_matches('c').parse().unwrap();
-        //     let envs = ENVS.get().ok_or(ttrpc::Error::Others(
-        //         "TEE server container env not set".to_string(),
-        //     ))?;
-
-        //     let container_envs = envs.get(&index);
-        //     if let Some(container_envs) = container_envs {
-        //         for (key, value) in &container_envs.envs {
-        //             process.Env.push(key.clone() + "=" + &value);
-        //         }
-        //     }
-        // }
-        // oci.set_Process(process);
-        // real_req.set_OCI(oci.clone());
-        // // WeTEE
+        // WeTEE Confidential Injection
+        let oci = req.OCI().clone();
+        let container_type = oci.Annotations.get("io.kubernetes.cri.container-type").ok_or(ttrpc::Error::Others(
+            "container type not set".to_string(),
+        ))?;
+        if container_type == "container" {
+            let image_name = oci.Annotations.get("io.kubernetes.cri.image-name").ok_or(ttrpc::Error::Others(
+                "image name not set".to_string(),
+            ))?;
+            let images = IMAGES.get().ok_or(ttrpc::Error::Others(
+                "TEE server image not set".to_string(),
+            ))?;
+            if !images.contains(image_name) {
+                return Err(ttrpc::Error::Others(
+                    "image not in pod image list".to_string(),
+                ));
+            }
+        }
+        // WeTEE
 
         trace_rpc_call!(ctx, "create_container", req);
         is_allowed(&req).await?;
@@ -1399,7 +1394,7 @@ impl agent_ttrpc::AgentService for AgentService {
                 ));
             }
 
-            let env_str = String::from_utf8(cresp.data);
+            let env_str = String::from_utf8(cresp.clone().data);
             if env_str.is_err() {
                 return Err(ttrpc::Error::Others(
                     "TEE server envs bytes to string error".to_string(),
@@ -1413,7 +1408,9 @@ impl agent_ttrpc::AgentService for AgentService {
                     "TEE server envs decode error".to_string(),
                 ));
             }
+
             ENVS.get_or_init(|| genvs.unwrap());
+            IMAGES.get_or_init(|| cresp.images);
         }
         // END WeTEE
 
