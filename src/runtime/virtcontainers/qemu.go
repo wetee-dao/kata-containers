@@ -139,6 +139,7 @@ const (
 	scsiControllerID         = "scsi0"
 	rngID                    = "rng0"
 	fallbackFileBackedMemDir = "/dev/shm"
+	balloonID                = "balloon0"
 
 	qemuStopSandboxTimeoutSecs = 15
 
@@ -397,23 +398,6 @@ func (q *qemu) createQmpSocket() ([]govmmQemu.QMPSocket, error) {
 	return sockets, nil
 }
 
-func (q *qemu) buildInitdataDevice(devices []govmmQemu.Device, InitdataImage string) []govmmQemu.Device {
-	device := govmmQemu.BlockDevice{
-		Driver:    govmmQemu.VirtioBlock,
-		Transport: govmmQemu.TransportPCI,
-		ID:        "initdata",
-		File:      InitdataImage,
-		SCSI:      false,
-		WCE:       false,
-		AIO:       govmmQemu.Threads,
-		Interface: "none",
-		Format:    "raw",
-	}
-
-	devices = append(devices, device)
-	return devices
-}
-
 func (q *qemu) buildDevices(ctx context.Context, kernelPath string) ([]govmmQemu.Device, *govmmQemu.IOThread, *govmmQemu.Kernel, error) {
 	var devices []govmmQemu.Device
 
@@ -649,6 +633,9 @@ func (q *qemu) prepareInitdataMount(config *HypervisorConfig) error {
 }
 
 // CreateVM is the Hypervisor VM creation implementation for govmmQemu.
+// This function is complex and there's not much to be done about it, unfortunately.
+//
+//nolint:gocyclo
 func (q *qemu) CreateVM(ctx context.Context, id string, network Network, hypervisorConfig *HypervisorConfig) error {
 	// Save the tracing context
 	q.ctx = ctx
@@ -763,7 +750,7 @@ func (q *qemu) CreateVM(ctx context.Context, id string, network Network, hypervi
 	}
 
 	if len(hypervisorConfig.Initdata) > 0 {
-		devices = q.buildInitdataDevice(devices, hypervisorConfig.InitdataImage)
+		devices = q.arch.buildInitdataDevice(ctx, devices, hypervisorConfig.InitdataImage)
 	}
 
 	// some devices configuration may also change kernel params, make sure this is called afterwards
@@ -813,6 +800,20 @@ func (q *qemu) CreateVM(ctx context.Context, id string, network Network, hypervi
 			Filename: q.config.EntropySource,
 		}
 		qemuConfig.Devices, err = q.arch.appendRNGDevice(ctx, qemuConfig.Devices, rngDev)
+		if err != nil {
+			return err
+		}
+	}
+
+	if q.config.ReclaimGuestFreedMemory && !q.config.ConfidentialGuest {
+		balloonDev := config.BalloonDev{
+			ID:                balloonID,
+			DeflateOnOOM:      true,
+			DisableModern:     false,
+			FreePageReporting: true,
+		}
+
+		qemuConfig.Devices, err = q.arch.appendBalloonDevice(ctx, qemuConfig.Devices, balloonDev)
 		if err != nil {
 			return err
 		}
