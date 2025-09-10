@@ -332,6 +332,11 @@ impl AgentService {
         let new_p = confidential_data_hub::image::get_process(p, &oci, req.storages.clone())?;
         let p = Process::new(&sl(), &new_p, cid.as_str(), true, pipe_size, proc_io)?;
 
+        // mount new vol
+        secure_mount(&cid, &mut oci, sl())
+            .await
+            .map_err(|e| anyhow!("failed to handle sealed secrets: {}", e))?;
+
         // if starting container failed, we will do some rollback work
         // to ensure no resources are leaked.
         if let Err(err) = ctr.start(p).await {
@@ -760,21 +765,22 @@ impl agent_ttrpc::AgentService for AgentService {
     ) -> ttrpc::Result<Empty> {
         // WeTEE Confidential Injection
         let oci = req.OCI().clone();
-        let container_type = oci.Annotations.get("io.kubernetes.cri.container-type").ok_or(ttrpc::Error::Others(
-            "container type not set".to_string(),
-        ))?;
+        let container_type = oci
+            .Annotations
+            .get("io.kubernetes.cri.container-type")
+            .ok_or(ttrpc::Error::Others("container type not set".to_string()))?;
         if container_type == "container" {
-            let image_name = oci.Annotations.get("io.kubernetes.cri.image-name").ok_or(ttrpc::Error::Others(
-                "image name not set".to_string(),
-            ))?;
-            let images = IMAGES.get().ok_or(ttrpc::Error::Others(
-                "TEE server image not set".to_string(),
-            ))?;
-            if !images.contains(image_name) {
-                return Err(ttrpc::Error::Others(
-                    "image not in pod image list".to_string(),
-                ));
-            }
+            // let image_name = oci.Annotations.get("io.kubernetes.cri.image-name").ok_or(ttrpc::Error::Others(
+            //     "image name not set".to_string(),
+            // ))?;
+            // let images = IMAGES.get().ok_or(ttrpc::Error::Others(
+            //     "TEE server: failed to obtain the container image version from the chain".to_string(),
+            // ))?;
+            // if !images.contains(image_name) {
+            //     return Err(ttrpc::Error::Others(
+            //         "image not in pod image list".to_string(),
+            //     ));
+            // }
         }
         // WeTEE
 
