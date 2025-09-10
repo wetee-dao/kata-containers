@@ -421,11 +421,6 @@ async fn start_sandbox(
     // if policy is given via initdata, use it
     #[cfg(feature = "agent-policy")]
     if let Some(initdata_return_value) = initdata_return_value {
-        // let env = serde_json::to_vec(&initdata_return_value._data).unwrap();
-        // let req = CrossRequest { data: vec![],env };
-        // unsafe { TEEServerImpl::start(&req).await }.code;
-
-
         if let Some(policy) = &initdata_return_value._policy {
             info!(logger, "using policy from initdata");
             AGENT_POLICY
