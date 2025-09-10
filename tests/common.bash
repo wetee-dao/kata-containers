@@ -28,7 +28,7 @@ KATA_HYPERVISOR="${KATA_HYPERVISOR:-qemu}"
 
 RUNTIME="${RUNTIME:-containerd-shim-kata-v2}"
 
-export branch="${target_branch:-main}"
+export branch="${target_branch:-"$(git remote show origin | sed -n '/HEAD branch/s/.*: //p')"}"
 
 function die() {
 	local msg="$*"
@@ -430,13 +430,13 @@ EOF
 function install_kata_core() {
 	declare -r katadir="$1"
 	declare -r destdir="/"
-	declare -r kata_tarball="kata-static.tar.xz"
+	declare -r kata_tarball="kata-static.tar.zst"
 
 	# Removing previous kata installation
 	sudo rm -rf "${katadir}"
 
 	pushd "${kata_tarball_dir}"
-	sudo tar -xvf "${kata_tarball}" -C "${destdir}"
+	sudo tar --zstd -xvf "${kata_tarball}" -C "${destdir}"
 	popd
 }
 
@@ -818,7 +818,7 @@ function arch_to_golang() {
 	local arch="$(uname -m)"
 
 	case "${arch}" in
-		aarch64) echo "arm64";;
+		aarch64|arm64) echo "arm64";;
 		ppc64le) echo "${arch}";;
 		riscv64) echo "${arch}";;
 		x86_64) echo "amd64";;
